@@ -12,21 +12,23 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+# Re-verifies every license URL against the vendored bytes. Links are proven
+# correct when written, but upstream can retag, rename or archive a repository
+# afterwards, and no offline gate can see that. This runs on a schedule rather
+# than per pull request so link rot does not block unrelated work.
 
-# Regenerates THIRD_PARTY_NOTICES.md and fails if it differs from the committed
-# copy, so a dependency change cannot land without refreshed attribution. The
-# generator also fails when a license file has no verified URL in
-# scripts/license-urls.tsv, which catches a bump that skipped
-# 'make third-party-notices-urls'. Link rot is caught separately by
-# third-party-notices-links.yaml.
-
-name: Third-Party Notices Check
+name: Third-Party Notices Link Check
 
 on:
-  workflow_call: {}
+  schedule:
+    - cron: '0 6 * * 1'
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
 
 jobs:
-  check-third-party-notices:
+  verify-links:
     runs-on: linux-amd64-cpu4
     timeout-minutes: 45
     permissions:
@@ -53,7 +55,17 @@ jobs:
         id: setup-go-proxy
         uses: nv-gha-runners/setup-artifactory-go-proxy@main
 
-      - name: Verify THIRD_PARTY_NOTICES.md is up to date
+      - name: Re-verify every license URL
         env:
           GOPROXY: ${{ steps.setup-go-proxy.outputs.goproxy-url }}
-        run: make check-third-party-notices
+          PROXY: ${{ steps.setup-go-proxy.outputs.goproxy-url }}
+          URLS_OUTPUT: /tmp/license-urls-fresh.tsv
+        run: make third-party-notices-urls
+
+      - name: Compare against the committed map
+        run: |
+          if ! diff -u <(LC_ALL=C grep -v '^#' scripts/license-urls.tsv) \
+                       <(LC_ALL=C grep -v '^#' /tmp/license-urls-fresh.tsv); then
+            echo "::error::A license URL no longer serves the vendored bytes. Upstream may have retagged or moved."
+            exit 1
+          fi

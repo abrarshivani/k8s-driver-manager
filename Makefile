@@ -25,8 +25,8 @@ REGISTRY ?= nvidia
 IMAGE_NAME = $(REGISTRY)/k8s-driver-manager
 endif
 
-CHECK_TARGETS := lint
-MAKE_TARGETS := build check fmt lint-internal test check-vendor third-party-notices check-third-party-notices $(CHECK_TARGETS)
+CHECK_TARGETS := lint test-tools
+MAKE_TARGETS := build check fmt lint-internal test check-vendor third-party-notices check-third-party-notices third-party-notices-repos third-party-notices-urls $(CHECK_TARGETS)
 
 TARGETS := $(MAKE_TARGETS)
 
@@ -69,6 +69,21 @@ check-third-party-notices: third-party-notices
 		|| { echo "ERROR: THIRD_PARTY_NOTICES.md is not tracked. Run 'make third-party-notices' and commit the result."; exit 1; }
 	@git diff --exit-code -- THIRD_PARTY_NOTICES.md \
 		|| { echo "ERROR: THIRD_PARTY_NOTICES.md is stale. Run 'make third-party-notices' and commit the change."; exit 1; }
+
+# Needs network. Rarely run: keyed by module, so a version bump does not
+# invalidate it. Only a new dependency does.
+third-party-notices-repos:
+	@bash scripts/resolve-module-repos.sh
+
+# Needs network. Every URL is content-verified against the vendored copy before
+# it is written, so re-run this whenever a dependency version changes.
+third-party-notices-urls: $(GO_LICENSES) third-party-notices-repos
+	@bash scripts/verify-license-urls.sh
+
+test-tools:
+	@for t in scripts/*_test.sh; do \
+		bash "$$t" || exit 1; \
+	done
 
 COVERAGE_FILE := coverage.out
 test: build
